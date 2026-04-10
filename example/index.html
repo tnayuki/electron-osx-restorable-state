@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>electron-osx-restorable-state example</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; padding: 24px; background: #1e1e1e; color: #e0e0e0; }
+            h1 { font-size: 20px; margin-bottom: 16px; }
+            .section { margin-bottom: 20px; padding: 16px; background: #2d2d2d; border-radius: 8px; }
+            .label { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+            .value { font-family: 'SF Mono', Menlo, monospace; font-size: 14px; word-break: break-all; }
+            button { padding: 8px 16px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 14px; }
+            button:hover { background: #106ebe; }
+            .instructions { font-size: 13px; color: #aaa; line-height: 1.6; }
+            .instructions ol { padding-left: 20px; }
+            input { padding: 6px 10px; background: #3d3d3d; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; font-size: 14px; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <h1>electron-osx-restorable-state</h1>
+
+  <div class="section instructions">
+    <div class="label">How to Test</div>
+    <ol>
+      <li>Move this window to a different Space (virtual desktop)</li>
+      <li>Optionally set some custom state data below</li>
+      <li>Quit the app (Cmd+Q)</li>
+      <li>Relaunch and verify the window restores to the same Space with its data</li>
+    </ol>
+  </div>
+
+  <div class="section">
+    <div class="label">Custom State</div>
+    <input type="text" id="state-key" placeholder="key" value="note">
+    <input type="text" id="state-value" placeholder="value" value="hello from restored state">
+    <button type="button" id="btn-set">Set State</button>
+    <button type="button" id="btn-get">Get State</button>
+  </div>
+
+  <div class="section">
+    <div class="label">Restorable Identifier</div>
+    <div class="value" id="identifier">-</div>
+  </div>
+
+  <div class="section">
+    <div class="label">Current Window Bounds</div>
+    <div class="value" id="bounds">-</div>
+  </div>
+
+  <div class="section">
+    <div class="label">Restored State</div>
+    <div class="value" id="state">-</div>
+  </div>
+
+  <div class="section">
+    <div class="label">Log</div>
+    <div class="value" id="log" style="white-space: pre-wrap; max-height: 200px; overflow-y: auto;">-</div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('log');
+            function log(msg) {
+              const ts = new Date().toLocaleTimeString();
+              logEl.textContent = `[${ts}] ${msg}\n${logEl.textContent}`;
+            }
+
+            window.restorableAPI.getIdentifier().then(id => {
+              document.getElementById('identifier').textContent = id || '(not set)';
+            });
+
+            window.restorableAPI.onStatusUpdate(data => {
+              const b = data.bounds;
+              document.getElementById('bounds').textContent =
+                `x=${b.x} y=${b.y} w=${b.width} h=${b.height}`;
+              document.getElementById('state').textContent =
+                data.state ? JSON.stringify(data.state, null, 2) : '(none)';
+            });
+
+            document.getElementById('btn-set').addEventListener('click', async () => {
+              const key = document.getElementById('state-key').value;
+              const value = document.getElementById('state-value').value;
+              await window.restorableAPI.setState({ [key]: value });
+              log(`State set: ${key} = ${value}`);
+            });
+
+            document.getElementById('btn-get').addEventListener('click', async () => {
+              const state = await window.restorableAPI.getState();
+              log(`State: ${JSON.stringify(state)}`);
+            });
+  </script>
+</body>
+</html>
