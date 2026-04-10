@@ -229,3 +229,57 @@ test('window bounds are approximately restored', async () => {
     fs.rmSync(tmpDir, { recursive: true });
   }
 });
+
+test('multiple windows are restored via restore-window event', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-multi-'));
+  const id1 = `multi-a-${RUN_ID}`;
+  const id2 = `multi-b-${RUN_ID}`;
+  const state1 = { role: 'editor', file: 'main.js' };
+  const state2 = { role: 'terminal', cwd: '/tmp' };
+
+  try {
+    // First launch: create two windows with custom state
+    const inst1 = writeTempJson(tmpDir, 'inst1.json', {
+      windows: [
+        {
+          identifier: id1,
+          bounds: { x: 100, y: 100, width: 400, height: 300 },
+          state: state1,
+        },
+        {
+          identifier: id2,
+          bounds: { x: 550, y: 100, width: 400, height: 300 },
+          state: state2,
+        },
+      ],
+      delayBeforeQuit: 3000,
+    });
+    const res1 = path.join(tmpDir, 'res1.json');
+    await launchApp(inst1, res1);
+
+    // Second launch: list expected identifiers so restore-window handler
+    // creates windows for them (filtering out stale state from other runs)
+    const inst2 = writeTempJson(tmpDir, 'inst2.json', {
+      windows: [{ identifier: id1 }, { identifier: id2 }],
+      delayBeforeQuit: 1000,
+    });
+    const res2 = path.join(tmpDir, 'res2.json');
+    await launchApp(inst2, res2);
+
+    const r2 = JSON.parse(fs.readFileSync(res2, 'utf8'));
+
+    // Both windows should be restored via the event
+    expect(r2.windows.length).toBe(2);
+
+    const w1 = r2.windows.find((w) => w.identifier === id1);
+    const w2 = r2.windows.find((w) => w.identifier === id2);
+    expect(w1).toBeTruthy();
+    expect(w2).toBeTruthy();
+
+    // restoredState (passed via restore-window event) should match
+    expect(w1.restoredState).toEqual(state1);
+    expect(w2.restoredState).toEqual(state2);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});

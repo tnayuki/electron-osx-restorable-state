@@ -10,6 +10,7 @@
 
 static NSMutableDictionary<NSString *, void (^)(NSWindow *, NSError *)>
     *sPendingHandlers;
+static NSMutableDictionary<NSString *, NSDictionary *> *sPendingStates;
 
 @interface RestorableStateRestorer : NSObject <NSWindowRestoration>
 @end
@@ -23,7 +24,23 @@ static NSMutableDictionary<NSString *, void (^)(NSWindow *, NSError *)>
                       (void (^)(NSWindow *, NSError *))completionHandler {
   if (!sPendingHandlers)
     sPendingHandlers = [NSMutableDictionary new];
+  if (!sPendingStates)
+    sPendingStates = [NSMutableDictionary new];
+
   sPendingHandlers[identifier] = [completionHandler copy];
+
+  // Decode custom user data from the saved state so it's available
+  // via getPendingWindows() before the window is created.
+  NSDictionary *userData =
+      [state decodeObjectOfClasses:[NSSet setWithArray:@[
+               [NSDictionary class], [NSArray class], [NSString class],
+               [NSNumber class], [NSData class]
+             ]]
+                            forKey:@"electronRestorableState"];
+  if (userData) {
+    sPendingStates[identifier] = userData;
+  }
+
   [NSApp extendStateRestoration];
 }
 
@@ -252,6 +269,7 @@ Napi::Value Enable(const Napi::CallbackInfo &info) {
   if (sPendingHandlers[identifier]) {
     sPendingHandlers[identifier](win, nil);
     [sPendingHandlers removeObjectForKey:identifier];
+    [sPendingStates removeObjectForKey:identifier];
     [NSApp completeStateRestoration];
   }
 
@@ -375,6 +393,52 @@ Napi::Value FlushState(const Napi::CallbackInfo &info) {
   return env.Undefined();
 }
 
+// getPendingWindows() → Array<{ identifier: string, state?: object }>
+Napi::Value GetPendingWindows(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  Napi::Array result = Napi::Array::New(env);
+  if (!sPendingHandlers)
+    return result;
+  uint32_t i = 0;
+  for (NSString *key in sPendingHandlers) {
+    Napi::Object entry = Napi::Object::New(env);
+    entry.Set("identifier", Napi::String::New(env, [key UTF8String]));
+    NSDictionary *state = sPendingStates[key];
+    if (state) {
+      entry.Set("state", NSDictionaryToNapiObject(env, state));
+    }
+    result.Set(i++, entry);
+  }
+  return result;
+}
+
+// dismissPendingWindows()
+// Completes all unclaimed pending restorations by calling their
+// completionHandler with (nil, error) and balancing extendStateRestoration.
+Napi::Value DismissPendingWindows(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (!sPendingHandlers || sPendingHandlers.count == 0)
+    return env.Undefined();
+
+  NSError *err =
+      [NSError errorWithDomain:@"com.electron.restorableState"
+                          code:1
+                      userInfo:@{
+                        NSLocalizedDescriptionKey :
+                            @"Window not restored by application"
+                      }];
+
+  NSArray<NSString *> *keys = [sPendingHandlers allKeys];
+  for (NSString *key in keys) {
+    sPendingHandlers[key](nil, err);
+    [sPendingHandlers removeObjectForKey:key];
+    [sPendingStates removeObjectForKey:key];
+    [NSApp completeStateRestoration];
+  }
+
+  return env.Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("enable", Napi::Function::New(env, Enable));
   exports.Set("setUserData", Napi::Function::New(env, SetUserData));
@@ -382,6 +446,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("getIdentifier", Napi::Function::New(env, GetIdentifier));
   exports.Set("invalidateState", Napi::Function::New(env, InvalidateState));
   exports.Set("flushState", Napi::Function::New(env, FlushState));
+  exports.Set("getPendingWindows", Napi::Function::New(env, GetPendingWindows));
+  exports.Set("dismissPendingWindows",
+              Napi::Function::New(env, DismissPendingWindows));
   return exports;
 }
 

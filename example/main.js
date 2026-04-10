@@ -2,12 +2,13 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
 
 // This single require enables macOS State Restoration
-// by injecting restorableIdentifier / restorableState onto BaseWindow.
+// by injecting restorableIdentifier / restorableState onto BaseWindow
+// and emitting 'restore-window' events during 'ready'.
 require('../index');
 
 let mainWindow;
 
-function createWindow() {
+function createWindow(restored) {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
@@ -18,15 +19,8 @@ function createWindow() {
     },
   });
 
-  // This is all you need.
-  // macOS will automatically save and restore:
-  // - Window position and size
-  // - Which Space (virtual desktop) the window was on
-  // - Any custom data set via restorableState
   mainWindow.restorableIdentifier = 'main-window';
 
-  // Check if macOS restored any custom data
-  const restored = mainWindow.restorableState;
   if (restored) {
     console.log('[restorable] Restored state:', restored);
   } else {
@@ -52,9 +46,21 @@ function createWindow() {
   }, 2000);
 }
 
-app.whenReady().then(() => {
-  createWindow();
+app.on('restore-window', (identifier, state, done) => {
+  try {
+    if (identifier) {
+      console.log('[restorable] Restoring window:', identifier);
+      createWindow(state);
+    } else {
+      console.log('[restorable] No windows to restore, creating default');
+      createWindow(null);
+    }
+  } finally {
+    done();
+  }
+});
 
+app.whenReady().then(() => {
   ipcMain.handle('set-state', (_event, data) => {
     mainWindow.restorableState = data;
     console.log('[restorable] State set:', data);

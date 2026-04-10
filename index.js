@@ -27,8 +27,9 @@ if (process.platform !== 'darwin') {
   const native = require('./build/Release/restorable_state.node');
 
   // Electron's app.quit() does NOT call [NSApp terminate:], so the
-  // terminate swizzle never fires. Flush state on will-quit instead.
-  app.on('will-quit', () => {
+  // terminate swizzle never fires. Flush state on before-quit — windows
+  // are still open at this point (will-quit fires after windows close).
+  app.on('before-quit', () => {
     native.flushState();
   });
 
@@ -72,5 +73,40 @@ if (process.platform !== 'darwin') {
       return native.getUserData(this.getNativeWindowHandle());
     },
     configurable: true,
+  });
+
+  // Emit 'restore-window' during the 'ready' event (synchronous). The
+  // listener receives a `done` callback that it must call when finished
+  // (either synchronously or asynchronously). After all listeners have
+  // called done, unclaimed completion handlers are dismissed.
+  app.on('ready', () => {
+    const pending = native.getPendingWindows();
+    if (pending.length === 0) {
+      // No windows to restore — signal with null identifier
+      app.emit('restore-window', null, undefined, () => {});
+      return;
+    }
+
+    let remaining = pending.length;
+    const onDone = () => {
+      remaining--;
+      if (remaining === 0) {
+        native.dismissPendingWindows();
+      }
+    };
+
+    for (const { identifier, state } of pending) {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        onDone();
+      };
+      try {
+        app.emit('restore-window', identifier, state, done);
+      } catch (_) {
+        done();
+      }
+    }
   });
 }

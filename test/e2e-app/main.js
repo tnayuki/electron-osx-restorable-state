@@ -33,12 +33,62 @@ app.on('quit', () => {
   fs.writeFileSync(`${resultsPath}.events`, JSON.stringify(events));
 });
 
+// Collect windows restored via 'restore-window' event
+const windows = [];
+const restoredIds = new Set();
+
+app.on('restore-window', (identifier, state, done) => {
+  console.log('[e2e] restore-window:', identifier, JSON.stringify(state));
+
+  try {
+    // null identifier means no windows to restore
+    if (!identifier) return;
+
+    const instructions = JSON.parse(fs.readFileSync(instructionsPath, 'utf8'));
+    const knownIds = new Set(instructions.windows.map((w) => w.identifier));
+
+    // Only restore windows the test expects; ignore leftover state from prior runs
+    if (knownIds.size > 0 && !knownIds.has(identifier)) return;
+
+    const winSpec = instructions.windows.find(
+      (w) => w.identifier === identifier,
+    );
+
+    const win = new BrowserWindow({
+      width: winSpec?.bounds?.width || 400,
+      height: winSpec?.bounds?.height || 300,
+      show: false,
+    });
+
+    win.restorableIdentifier = identifier;
+
+    // State comes from the event argument (decoded in restoreWindowWithIdentifier:)
+    const restoredState = state || null;
+
+    if (winSpec?.state) {
+      win.restorableState = winSpec.state;
+    }
+
+    if (winSpec?.bounds) {
+      win.setBounds(winSpec.bounds);
+    }
+
+    win.show();
+    windows.push({ win, identifier, restoredState });
+    restoredIds.add(identifier);
+  } finally {
+    done();
+  }
+});
+
 app.whenReady().then(() => {
   console.log('[e2e] app ready');
   const instructions = JSON.parse(fs.readFileSync(instructionsPath, 'utf8'));
-  const windows = [];
 
+  // Create windows not restored by macOS
   for (const winSpec of instructions.windows) {
+    if (restoredIds.has(winSpec.identifier)) continue;
+
     const win = new BrowserWindow({
       width: winSpec.bounds?.width || 400,
       height: winSpec.bounds?.height || 300,

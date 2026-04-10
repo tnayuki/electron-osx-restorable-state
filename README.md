@@ -20,20 +20,41 @@ Requires Xcode Command Line Tools for the native addon build.
 const { app, BrowserWindow } = require('electron');
 require('electron-osx-restorable-state');
 
-app.whenReady().then(() => {
-  const win = new BrowserWindow({ width: 800, height: 600, show: false });
-
-  // Set a stable identifier — that's all you need for frame + Space restoration
-  win.restorableIdentifier = 'main-window';
-
-  // Optionally attach custom data that will be saved/restored alongside the window
-  win.restorableState = { openTabs: ['tab1', 'tab2'] };
-
-  win.show();
+app.on('restore-window', (identifier, state, done) => {
+  try {
+    if (identifier) {
+      // Restore a window from the previous session
+      const win = new BrowserWindow({ show: false });
+      win.restorableIdentifier = identifier;
+      // state contains the custom data saved via restorableState
+      win.show();
+    } else {
+      // No windows to restore — create a default window
+      const win = new BrowserWindow({ width: 800, height: 600 });
+      win.restorableIdentifier = 'main-window';
+      win.restorableState = { openTabs: ['tab1', 'tab2'] };
+    }
+  } finally {
+    done();
+  }
 });
 ```
 
+> **Note:** State Restoration requires a packaged app (with a stable bundle identifier). It does not work when running with `electron .` during development.
+
 ## API
+
+### `app.on('restore-window', (identifier, state, done) => ...)` (macOS only)
+
+Emitted during `ready` for window restoration.
+
+- When macOS has windows to restore: fires once per window with `identifier` set and `state` containing custom data previously saved via `restorableState`.
+- When there are no windows to restore (first launch, etc.): fires once with `identifier: null`.
+- On non-macOS platforms: not emitted.
+
+Create a `BrowserWindow` and set its `restorableIdentifier` to complete the restoration. macOS will then automatically apply the saved frame and Space.
+
+**The listener must call `done()` when it has finished** (either synchronously in a `finally` block, or after any asynchronous initialization). Unclaimed macOS completion handlers are dismissed only after all listeners have called `done`.
 
 ### `win.restorableIdentifier: string`
 
@@ -45,10 +66,11 @@ Get or set custom data to be saved alongside the window's native state. The data
 
 ## How it works
 
-1. **Method swizzling** — Adds `[super saveRestorableState]` to Chromium's override, re-enabling macOS's native state store
-2. **Restoration class** — Registers an `NSWindowRestoration`-conforming class that holds completion handlers until Electron creates the window
-3. **View methods** — Adds `encodeRestorableStateWithCoder:` / `restoreStateWithCoder:` to BridgedContentView via `class_addMethod` for custom data persistence
-4. **Prototype extension** — Injects `restorableIdentifier` / `restorableState` properties onto `BaseWindow.prototype` — just `require` to activate
+1. **`saveRestorableState` swizzle** — Replaces Chromium's override with a no-op. Chromium serializes window state and sends it via IPC to its own persistence layer; Electron doesn't use that data. Disabling it lets macOS's native save cycle handle persistence instead
+2. **`terminate:` swizzle** — Electron's `app.quit()` doesn't call `[NSApp terminate:]`, so the native save cycle never fires. A `before-quit` hook triggers `[super terminate:]` with `NSTerminateLater` to flush state, then cancels termination and lets Electron's normal quit flow proceed
+3. **`encodeRestorableStateWithCoder:` / `restoreStateWithCoder:` swizzle** — Intercepts NSWindow's encode/restore to read and write custom data (`restorableState`) via `objc_setAssociatedObject`
+4. **Restoration class** — Registers an `NSWindowRestoration`-conforming class that holds completion handlers until Electron creates the window, then passes it back to macOS
+5. **`restore-window` event** — After `ready`, emits one event per pending window so the app can create BrowserWindows in response
 
 ## Relation to electron-osx-spaces
 
