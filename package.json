@@ -16,6 +16,7 @@
     "clean": "node-gyp clean",
     "example": "env -u ELECTRON_RUN_AS_NODE npx electron example/main.js",
     "test": "env -u ELECTRON_RUN_AS_NODE npx electron test/smoke.js",
+    "test:e2e": "npx playwright test test/e2e.spec.js",
     "lint": "npx @biomejs/biome check .",
     "lint:fix": "npx @biomejs/biome check --write .",
     "prepare": "husky"
@@ -54,10 +55,12 @@
     "@commitlint/config-conventional": "^20.5.0",
     "@electron/packager": "^19.1.0",
     "@electron/rebuild": "^4.0.3",
+    "@playwright/test": "^1.59.1",
     "electron": "^40.8.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "node-gyp": ">=9.0.0"
+    "node-gyp": ">=9.0.0",
+    "playwright": "^1.59.1"
   },
   "lint-staged": {
     "*.{js,json}": "npx @biomejs/biome check --write --no-errors-on-unmatched"

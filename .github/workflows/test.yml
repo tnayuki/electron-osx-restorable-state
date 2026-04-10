@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-14, macos-15, macos-26]
     runs-on: ${{ matrix.os }}
@@ -29,3 +30,9 @@ jobs:
 
       - name: Run smoke tests
         run: npm test
+
+      - name: Enable macOS State Restoration
+        run: defaults write NSGlobalDomain NSQuitAlwaysKeepsWindows -bool true
+
+      - name: Run E2E tests
+        run: npm run test:e2e
