@@ -12,6 +12,13 @@ static NSMutableDictionary<NSString *, void (^)(NSWindow *, NSError *)>
     *sPendingHandlers;
 static NSMutableDictionary<NSString *, NSDictionary *> *sPendingStates;
 
+static id NapiValueToNSObject(Napi::Env env, Napi::Value val);
+static NSArray *NapiArrayToNSArray(Napi::Env env, Napi::Array arr);
+static Napi::Value NSObjectToNapiValue(Napi::Env env, id val);
+static Napi::Array NSArrayToNapiArray(Napi::Env env, NSArray *arr);
+static Napi::Object NSDictionaryToNapiObject(Napi::Env env,
+                       NSDictionary *dict);
+
 @interface RestorableStateRestorer : NSObject <NSWindowRestoration>
 @end
 
@@ -34,7 +41,7 @@ static NSMutableDictionary<NSString *, NSDictionary *> *sPendingStates;
   NSDictionary *userData =
       [state decodeObjectOfClasses:[NSSet setWithArray:@[
                [NSDictionary class], [NSArray class], [NSString class],
-               [NSNumber class], [NSData class]
+               [NSNumber class], [NSData class], [NSNull class]
              ]]
                             forKey:@"electronRestorableState"];
   if (userData) {
@@ -74,7 +81,7 @@ static void Swizzled_restoreStateWithCoder(id self, SEL _cmd, NSCoder *coder) {
   NSDictionary *userData =
       [coder decodeObjectOfClasses:[NSSet setWithArray:@[
                [NSDictionary class], [NSArray class], [NSString class],
-               [NSNumber class], [NSData class]
+               [NSNumber class], [NSData class], [NSNull class]
              ]]
                             forKey:@"electronRestorableState"];
   if (userData) {
@@ -170,30 +177,79 @@ static NSDictionary *NapiObjectToNSDictionary(Napi::Env env,
     NSString *nsKey = [NSString stringWithUTF8String:key.c_str()];
     Napi::Value val = obj.Get(key);
 
-    if (val.IsString()) {
-      dict[nsKey] =
-          [NSString stringWithUTF8String:val.As<Napi::String>()
-                                            .Utf8Value()
-                                            .c_str()];
-    } else if (val.IsNumber()) {
-      dict[nsKey] = @(val.As<Napi::Number>().DoubleValue());
-    } else if (val.IsBoolean()) {
-      dict[nsKey] = @(val.As<Napi::Boolean>().Value());
-    } else if (val.IsNull() || val.IsUndefined()) {
-      // skip
-    } else if (val.IsArray()) {
-      // Store arrays as JSON string for simplicity
-      Napi::Object json = env.Global().Get("JSON").As<Napi::Object>();
-      Napi::Function stringify = json.Get("stringify").As<Napi::Function>();
-      std::string jsonStr =
-          stringify.Call(json, {val}).As<Napi::String>().Utf8Value();
-      dict[nsKey] =
-          [NSString stringWithUTF8String:jsonStr.c_str()];
-    } else if (val.IsObject()) {
-      dict[nsKey] = NapiObjectToNSDictionary(env, val.As<Napi::Object>());
+    id converted = NapiValueToNSObject(env, val);
+    if (converted) {
+      dict[nsKey] = converted;
     }
   }
   return dict;
+}
+
+static id NapiValueToNSObject(Napi::Env env, Napi::Value val) {
+  if (val.IsString()) {
+    return [NSString stringWithUTF8String:val.As<Napi::String>()
+                                              .Utf8Value()
+                                              .c_str()];
+  }
+  if (val.IsNumber()) {
+    return @(val.As<Napi::Number>().DoubleValue());
+  }
+  if (val.IsBoolean()) {
+    return @(val.As<Napi::Boolean>().Value());
+  }
+  if (val.IsNull()) {
+    return [NSNull null];
+  }
+  if (val.IsUndefined()) {
+    return nil;
+  }
+  if (val.IsArray()) {
+    return NapiArrayToNSArray(env, val.As<Napi::Array>());
+  }
+  if (val.IsObject()) {
+    return NapiObjectToNSDictionary(env, val.As<Napi::Object>());
+  }
+  return nil;
+}
+
+static NSArray *NapiArrayToNSArray(Napi::Env env, Napi::Array arr) {
+  NSMutableArray *out = [NSMutableArray arrayWithCapacity:arr.Length()];
+  for (uint32_t i = 0; i < arr.Length(); i++) {
+    id converted = NapiValueToNSObject(env, arr.Get(i));
+    [out addObject:converted ?: [NSNull null]];
+  }
+  return out;
+}
+
+static Napi::Value NSObjectToNapiValue(Napi::Env env, id val) {
+  if (!val || val == [NSNull null]) {
+    return env.Null();
+  }
+  if ([val isKindOfClass:[NSString class]]) {
+    return Napi::String::New(env, [val UTF8String]);
+  }
+  if ([val isKindOfClass:[NSNumber class]]) {
+    if (strcmp([val objCType], @encode(BOOL)) == 0 ||
+        strcmp([val objCType], @encode(char)) == 0) {
+      return Napi::Boolean::New(env, [val boolValue]);
+    }
+    return Napi::Number::New(env, [val doubleValue]);
+  }
+  if ([val isKindOfClass:[NSDictionary class]]) {
+    return NSDictionaryToNapiObject(env, val);
+  }
+  if ([val isKindOfClass:[NSArray class]]) {
+    return NSArrayToNapiArray(env, val);
+  }
+  return env.Undefined();
+}
+
+static Napi::Array NSArrayToNapiArray(Napi::Env env, NSArray *arr) {
+  Napi::Array out = Napi::Array::New(env, arr.count);
+  for (NSUInteger i = 0; i < arr.count; i++) {
+    out.Set(i, NSObjectToNapiValue(env, arr[i]));
+  }
+  return out;
 }
 
 static Napi::Object NSDictionaryToNapiObject(Napi::Env env,
@@ -202,20 +258,7 @@ static Napi::Object NSDictionaryToNapiObject(Napi::Env env,
   for (NSString *key in dict) {
     std::string cKey = [key UTF8String];
     id val = dict[key];
-
-    if ([val isKindOfClass:[NSString class]]) {
-      obj.Set(cKey, Napi::String::New(env, [val UTF8String]));
-    } else if ([val isKindOfClass:[NSNumber class]]) {
-      // Check if it's a boolean
-      if (strcmp([val objCType], @encode(BOOL)) == 0 ||
-          strcmp([val objCType], @encode(char)) == 0) {
-        obj.Set(cKey, Napi::Boolean::New(env, [val boolValue]));
-      } else {
-        obj.Set(cKey, Napi::Number::New(env, [val doubleValue]));
-      }
-    } else if ([val isKindOfClass:[NSDictionary class]]) {
-      obj.Set(cKey, NSDictionaryToNapiObject(env, val));
-    }
+    obj.Set(cKey, NSObjectToNapiValue(env, val));
   }
   return obj;
 }
@@ -373,7 +416,7 @@ Napi::Value InvalidateState(const Napi::CallbackInfo &info) {
 
 // flushState() — trigger [NSApp terminate:] with NSTerminateCancel to save
 // restorable state, then return immediately without actually quitting.
-// Called from the 'will-quit' event handler.
+// Called from the 'before-quit' event handler.
 Napi::Value FlushState(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 

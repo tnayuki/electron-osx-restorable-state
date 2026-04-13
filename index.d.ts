@@ -49,7 +49,8 @@ declare global {
        * On macOS, this is saved via encodeRestorableStateWithCoder: and
        * automatically restored on next launch.
        *
-       * Supported value types: string, number, boolean, nested objects.
+       * Supported value types: string, number, boolean, null,
+       * arrays, and nested objects/arrays.
        *
        * On non-macOS platforms, this property is stored in memory only.
        */

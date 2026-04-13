@@ -108,7 +108,12 @@ test.beforeAll(async () => {
 test('custom state is persisted and restored across launches', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-state-'));
   const id = `state-${RUN_ID}`;
-  const stateData = { note: 'hello', count: 42 };
+  const stateData = {
+    note: 'hello',
+    count: 42,
+    items: ['a', 'b', 3],
+    nested: { value: null, flags: [true, false, null] },
+  };
 
   try {
     // First launch: set custom state with unique identifier

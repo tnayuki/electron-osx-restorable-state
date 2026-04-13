@@ -68,6 +68,19 @@ Set a stable identifier to enable State Restoration for this window. macOS will 
 
 Get or set custom data to be saved alongside the window's native state. The data is serialized as JSON and persisted by macOS.
 
+Current supported value shapes:
+
+- Plain objects (`{}`) with string keys
+- `string`, `number`, `boolean`
+- `null`
+- Arrays containing supported values
+- Nested plain objects/arrays using the same rules
+
+Not guaranteed to round-trip correctly:
+
+- `undefined` properties (dropped on save)
+- Non-JSON-like values (for example `Date`, `Map`, `Set`, functions)
+
 ## How it works
 
 1. **Window setup (`restorableIdentifier`)** — Setting `win.restorableIdentifier` calls into the native addon, marks the NSWindow as restorable, assigns the restoration class, and wires the window into macOS State Restoration.
