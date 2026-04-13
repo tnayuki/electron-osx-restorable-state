@@ -40,7 +40,11 @@ app.on('restore-window', (identifier, state, done) => {
 });
 ```
 
-> **Note:** State Restoration requires a packaged app (with a stable bundle identifier). It does not work when running with `electron .` during development.
+> **Note:**
+> - State Restoration requires a packaged app (with a stable bundle identifier). It does not work when running with `electron .` during development.
+> - macOS has separate restoration flows: restart/login and app-only quit/relaunch. Restart/login reopening is controlled by the system checkbox "Reopen windows when logging back in" in restart/shutdown dialogs.
+> - App-only quit/relaunch behavior depends on app state and Desktop & Dock settings. For reliable local testing, turn off "Close windows when quitting an application".
+> - Space/Desktop placement is managed by Mission Control (for example, auto-rearrange Spaces and app-switch Space jumping). This package primarily guarantees window restoration and custom state restoration.
 
 ## API
 
@@ -66,11 +70,11 @@ Get or set custom data to be saved alongside the window's native state. The data
 
 ## How it works
 
-1. **`saveRestorableState` swizzle** — Replaces Chromium's override with a no-op. Chromium serializes window state and sends it via IPC to its own persistence layer; Electron doesn't use that data. Disabling it lets macOS's native save cycle handle persistence instead
-2. **`terminate:` swizzle** — Electron's `app.quit()` doesn't call `[NSApp terminate:]`, so the native save cycle never fires. A `before-quit` hook triggers `[super terminate:]` with `NSTerminateLater` to flush state, then cancels termination and lets Electron's normal quit flow proceed
-3. **`encodeRestorableStateWithCoder:` / `restoreStateWithCoder:` swizzle** — Intercepts NSWindow's encode/restore to read and write custom data (`restorableState`) via `objc_setAssociatedObject`
-4. **Restoration class** — Registers an `NSWindowRestoration`-conforming class that holds completion handlers until Electron creates the window, then passes it back to macOS
-5. **`restore-window` event** — After `ready`, emits one event per pending window so the app can create BrowserWindows in response
+1. **Window setup (`restorableIdentifier`)** — Setting `win.restorableIdentifier` calls into the native addon, marks the NSWindow as restorable, assigns the restoration class, and wires the window into macOS State Restoration.
+2. **Custom state encode/restore swizzle** — Swizzles `encodeRestorableStateWithCoder:` and `restoreStateWithCoder:` on NSWindow to persist and recover custom `restorableState` data via associated objects.
+3. **Quit-time flush hook** — Electron's `app.quit()` does not call `[NSApp terminate:]`, so a `before-quit` hook calls native `flushState()`, which invokes `[NSApp terminate:]` and returns `NSTerminateCancel` from `applicationShouldTerminate:` so state is flushed without replacing Electron's normal quit flow.
+4. **Restoration class pending queue** — The `NSWindowRestoration` class captures macOS completion handlers (and decoded saved state) until JS creates the matching BrowserWindow.
+5. **`restore-window` event bridge** — During `ready`, pending restore requests are emitted as `restore-window` events. The app creates windows and calls `done()`, then remaining unclaimed requests are dismissed.
 
 ## Relation to electron-osx-spaces
 
