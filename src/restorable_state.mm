@@ -127,8 +127,10 @@ static void InstallShouldTerminate() {
                                    (IMP)Swizzled_applicationShouldTerminate);
     } else {
       // Electron doesn't implement this — add it
+      std::string methodTypes = std::string(@encode(NSApplicationTerminateReply)) + "@:@";
       class_addMethod(delCls, shouldSel,
-                      (IMP)Swizzled_applicationShouldTerminate, "I@:@");
+                      (IMP)Swizzled_applicationShouldTerminate,
+                      methodTypes.c_str());
     }
   }
 
