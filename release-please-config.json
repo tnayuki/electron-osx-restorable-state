@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "0360cbfbff3dee1ccc4d4c7659e683ac43e07cbe",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "electron-osx-restorable-state"
+    }
+  }
+}
