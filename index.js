@@ -87,6 +87,12 @@ if (process.platform !== 'darwin') {
       return;
     }
 
+    if (app.listenerCount('restore-window') === 0) {
+      // No listeners registered before ready; release pending handlers.
+      native.dismissPendingWindows();
+      return;
+    }
+
     let remaining = pending.length;
     const onDone = () => {
       remaining--;
@@ -103,7 +109,10 @@ if (process.platform !== 'darwin') {
         onDone();
       };
       try {
-        app.emit('restore-window', identifier, state, done);
+        const emitted = app.emit('restore-window', identifier, state, done);
+        if (!emitted) {
+          done();
+        }
       } catch (_) {
         done();
       }

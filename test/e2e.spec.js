@@ -195,6 +195,38 @@ test('app lifecycle events fire normally (window close)', async () => {
   }
 });
 
+test('does not hang when restore-window listener is not registered', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-no-listener-'));
+  const id = `nolistener-${RUN_ID}`;
+
+  try {
+    // First launch: persist a restorable window so a pending restore exists.
+    const inst1 = writeTempJson(tmpDir, 'inst1.json', {
+      windows: [{ identifier: id, state: { warmup: true } }],
+      delayBeforeQuit: 1500,
+    });
+    const res1 = path.join(tmpDir, 'res1.json');
+    await launchApp(inst1, res1);
+
+    // Second launch: skip restore-window registration in the app process.
+    const inst2 = writeTempJson(tmpDir, 'inst2.json', {
+      windows: [],
+      disableRestoreWindowListener: true,
+      delayBeforeQuit: 1000,
+    });
+    const res2 = path.join(tmpDir, 'res2.json');
+    const { code } = await launchApp(inst2, res2);
+
+    // If pending handlers are not dismissed, launchApp() would timeout.
+    expect(code).toBe(0);
+
+    const r2 = JSON.parse(fs.readFileSync(res2, 'utf8'));
+    expect(r2.windows).toEqual([]);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true });
+  }
+});
+
 test('window bounds are approximately restored', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-bounds-'));
   const id = `bounds-${RUN_ID}`;
