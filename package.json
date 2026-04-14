@@ -1,6 +1,6 @@
 {
   "name": "electron-osx-restorable-state",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "macOS State Restoration for Electron — automatically save and restore window position, Space, and custom data",
   "main": "index.js",
   "types": "index.d.ts",
